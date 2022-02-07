@@ -33,20 +33,13 @@
             app:layout_constraintTop_toTopOf="parent">
 
             <Button
-                android:id="@+id/bCapture"
-                android:layout_width="wrap_content"
+                android:id="@+id/recordBtn"
+                android:layout_width="126dp"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="10dp"
-                android:text="take picture" />
+                android:text="@string/start_recording"
+                tools:ignore="DuplicateSpeakableTextCheck" />
 
-            <Button
-                android:id="@+id/bRecord"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="10dp"
-                android:layout_alignParentEnd="true"
-                android:layout_alignParentRight="true"
-                android:text="start recording" />
         </RelativeLayout>
     </LinearLayout>
 

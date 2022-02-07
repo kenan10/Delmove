@@ -3,8 +3,6 @@ package com.example.cameramin;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.content.ContentValues;
-import android.content.Context;
-import android.content.ContextWrapper;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
@@ -39,17 +37,15 @@ import androidx.lifecycle.LifecycleOwner;
 import com.google.common.util.concurrent.ListenableFuture;
 
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Calendar;
-import java.util.concurrent.Callable;
+import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -58,8 +54,8 @@ public class MainActivity extends AppCompatActivity {
 
     private static final int PERMISSION_REQUEST_CAMERA = 34634;
 
-    private static final int FRAME_PER_MINUTE = 30;
-    private static final int RECORD_TIME = 1;
+    private static final int FRAME_DELAY = 3000;
+    private static final int FRAME_NUMBER = 3;
 
     private ImageView imageView;
     private Button startBtn;
@@ -67,9 +63,10 @@ public class MainActivity extends AppCompatActivity {
     ListenableFuture<ProcessCameraProvider> cameraProviderFuture;
 
     YUVtoRGB translator = new YUVtoRGB();
+    ImageProcessor imageProcessor = new ImageProcessor();
+
 
     private ImageCapture imageCapture;
-    private ImageAnalysis imageAnalysis;
 
     @RequiresApi(api = Build.VERSION_CODES.R)
     @Override
@@ -98,28 +95,27 @@ public class MainActivity extends AppCompatActivity {
         }
 
         imageView = findViewById(R.id.imageView);
-        startBtn = findViewById(R.id.bCapture);
+        startBtn = findViewById(R.id.recordBtn);
+
+        cameraProviderFuture = ProcessCameraProvider.getInstance(this);
 
         startBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                capturePhoto(ContextCompat.getMainExecutor(MainActivity.this));
+                Runnable cameraProviderFutureListener = new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            ProcessCameraProvider cameraProvider = cameraProviderFuture.get();
+                            initCamera(cameraProvider);
+                        } catch (ExecutionException | InterruptedException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                };
+                cameraProviderFuture.addListener(cameraProviderFutureListener, ContextCompat.getMainExecutor(MainActivity.this));
             }
         });
-
-        cameraProviderFuture = ProcessCameraProvider.getInstance(this);
-        Runnable cameraProviderFutureListener = new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    ProcessCameraProvider cameraProvider = cameraProviderFuture.get();
-                    initCamera(cameraProvider);
-                } catch (ExecutionException | InterruptedException e) {
-                    e.printStackTrace();
-                }
-            }
-        };
-        cameraProviderFuture.addListener(cameraProviderFutureListener, ContextCompat.getMainExecutor(MainActivity.this));
     }
 
     @Override
@@ -133,21 +129,64 @@ public class MainActivity extends AppCompatActivity {
 
     private void initCamera(ProcessCameraProvider cameraProvider) {
         cameraProvider.unbindAll();
+        File appDir = new File(Environment.getExternalStorageDirectory() + "/Delmove");
+        File sessionDir = new File(appDir, Calendar.getInstance().getTime().toString().replaceAll(":", "."));
+        sessionDir.mkdir();
+
+        final int[] frameCounter = {FRAME_NUMBER};
+
+        List<Bitmap> bitmaps = new ArrayList<>();
 
         CameraSelector cameraSelector = new CameraSelector.Builder()
                 .requireLensFacing(CameraSelector.LENS_FACING_BACK)
                 .build();
 
-        imageCapture = new ImageCapture.Builder()
-                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-                .build();
+//        imageCapture = new ImageCapture.Builder()
+//                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+//                .build();
 
-        ImageAnalysis imageAnalysis = new ImageAnalysis.Builder()
+        ImageAnalysis imageSaving = new ImageAnalysis.Builder()
                 .setTargetResolution(new Size(1024, 768))
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build();
 
-        imageAnalysis.setAnalyzer(ContextCompat.getMainExecutor(MainActivity.this),
+        imageSaving.setAnalyzer(executorService, new ImageAnalysis.Analyzer() {
+            @Override
+            public void analyze(@NonNull ImageProxy image) {
+                @SuppressLint("UnsafeOptInUsageError") Image img = image.getImage();
+                Bitmap bitmap = translator.translateYUV(img, MainActivity.this);
+                bitmaps.add(bitmap);
+                saveToAppFolder(bitmap, sessionDir);
+
+                frameCounter[0]--;
+                if (frameCounter[0] <= 0) {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            imageSaving.clearAnalyzer();
+                            cameraProvider.unbind(imageSaving);
+                            Toast.makeText(MainActivity.this, "Successfully caprured!", Toast.LENGTH_SHORT).show();
+                        }
+                    });
+                    Bitmap result = imageProcessor.removeMove(bitmaps);
+                    saveToAppFolder(result, sessionDir);
+                }
+
+                try {
+                    Thread.sleep(FRAME_DELAY);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+                image.close();
+            }
+        });
+
+        ImageAnalysis imageDisplaying = new ImageAnalysis.Builder()
+                .setTargetResolution(new Size(1024, 768))
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .build();
+
+        imageDisplaying.setAnalyzer(ContextCompat.getMainExecutor(MainActivity.this),
                 new ImageAnalysis.Analyzer() {
                     @Override
                     public void analyze(@NonNull ImageProxy image) {
@@ -157,24 +196,12 @@ public class MainActivity extends AppCompatActivity {
                         imageView.setRotation(image.getImageInfo().getRotationDegrees());
                         imageView.setImageBitmap(bitmap);
 
-                        executorService.execute(new Runnable() {
-                            @Override
-                            public void run() {
-                                saveToAppFolder(bitmap);
-                                try {
-                                    Thread.sleep(5000);
-                                } catch (InterruptedException e) {
-                                    e.printStackTrace();
-                                }
-                            }
-                        });
-
                         image.close();
                     }
                 });
 
-        cameraProvider.bindToLifecycle((LifecycleOwner) this, cameraSelector, imageAnalysis);
-        cameraProvider.bindToLifecycle((LifecycleOwner) this, cameraSelector, imageCapture);
+        cameraProvider.bindToLifecycle((LifecycleOwner) this, cameraSelector, imageSaving, imageDisplaying);
+//        cameraProvider.bindToLifecycle((LifecycleOwner) this, cameraSelector, imageCapture);
     }
 
     private void capturePhoto(Executor executor) {
@@ -215,27 +242,13 @@ public class MainActivity extends AppCompatActivity {
         );
     }
 
-    private static Bitmap drawStringonBitmap(Bitmap src, String string, Point location, int width , int height) {
+    private void saveToAppFolder(Bitmap bmp, File sessionFolder) {
+        File appDir = new File(Environment.getExternalStorageDirectory() + "/Delmove");
 
-        Bitmap result = Bitmap.createBitmap(width, height, src.getConfig());
-
-        Canvas canvas = new Canvas(result);
-        canvas.drawBitmap(src, 0, 0, null);
-        Paint paint = new Paint();
-        paint.setColor(Color.RED);
-        paint.setTextSize(15);
-        paint.setAntiAlias(true);
-        canvas.drawText(string, location.x, location.y, paint);
-
-        return result;
-    }
-
-    private void saveToAppFolder(Bitmap bmp) {
-        File dir = new File(Environment.getExternalStorageDirectory() + "/Delmove");
         String filename = Calendar.getInstance().getTime().toString();
         filename = filename.replaceAll(":", ".") + ".png";
 
-        File file = new File(dir, filename);
+        File file = new File(sessionFolder, filename);
         try {
             file.createNewFile();
         } catch (IOException e) {
