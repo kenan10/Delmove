@@ -54,8 +54,8 @@ public class MainActivity extends AppCompatActivity {
 
     private static final int PERMISSION_REQUEST_CAMERA = 34634;
 
-    private static final int FRAME_DELAY = 3000;
-    private static final int FRAME_NUMBER = 3;
+    private static final int FRAME_DELAY = 1500;
+    private static final int FRAME_NUMBER = 10;
 
     private ImageView imageView;
     private Button startBtn;
@@ -151,6 +151,7 @@ public class MainActivity extends AppCompatActivity {
                 .build();
 
         imageSaving.setAnalyzer(executorService, new ImageAnalysis.Analyzer() {
+            @RequiresApi(api = Build.VERSION_CODES.N)
             @Override
             public void analyze(@NonNull ImageProxy image) {
                 @SuppressLint("UnsafeOptInUsageError") Image img = image.getImage();

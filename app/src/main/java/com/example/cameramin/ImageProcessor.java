@@ -1,12 +1,12 @@
 package com.example.cameramin;
 
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
-import android.util.Log;
+import android.graphics.Color;
+import android.os.Build;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.RequiresApi;
 
-import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -14,15 +14,27 @@ import java.util.Comparator;
 import java.util.List;
 
 public class ImageProcessor {
+    @RequiresApi(api = Build.VERSION_CODES.N)
     public Bitmap removeMove(List<Bitmap> bmpArray) {
         try {
-            List<List<Byte>> pixelArrays = getPixelArrays(bmpArray);
+            int width = bmpArray.get(0).getWidth();
+            int height = bmpArray.get(0).getHeight();
             Bitmap resultBitmap = bmpArray.get(0).copy(Bitmap.Config.ARGB_8888, true);
 
-            for (int i = 0; i < resultBitmap.getHeight(); i++) {
-                for (int j = 0; j < resultBitmap.getWidth(); j++) {
-                    List<Byte> sortedPixelValues = sortFromLowestToHighest(pixelArrays.get(i));
-                    resultBitmap.setPixel(j, i, sortedPixelValues.get(sortedPixelValues.size() / 2));
+            for (int i = 0; i < width; i++) {
+                for (int j = 0; j < height; j++) {
+                    List<Integer> pixelArray = new ArrayList<>();
+
+                    int finalI = i;
+                    int finalJ = j;
+                    bmpArray.forEach((bmp) -> {
+                        pixelArray.add(bmp.getPixel(finalI, finalJ));
+                    });
+
+                    List<Integer> sortedPixelArray = sortFromLowesToHighest(pixelArray);
+
+                    int newPixelValue = Color.argb(255, sortedPixelArray.get(sortedPixelArray.size() / 2), sortedPixelArray.get(sortedPixelArray.size() / 2), sortedPixelArray.get(sortedPixelArray.size() / 2));
+                    resultBitmap.setPixel(i, j, sortedPixelArray.get(sortedPixelArray.size() / 2));
                 }
             }
 
@@ -59,6 +71,19 @@ public class ImageProcessor {
         {
             @Override
             public int compare(Byte x, Byte y)
+            {
+                return x - y;
+            }
+        });
+
+        return arr;
+    }
+
+    private List<Integer> sortFromLowesToHighest(List<Integer> arr) {
+        Collections.sort(arr, new Comparator<Integer>()
+        {
+            @Override
+            public int compare(Integer x, Integer y)
             {
                 return x - y;
             }
